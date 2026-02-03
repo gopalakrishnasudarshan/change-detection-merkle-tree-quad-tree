@@ -8,8 +8,10 @@ Root hash comparison indicates global change; tree structure enables future chan
 Work done so far:
 Image loading and validation
 Tiling implemented
-Tile hashing
+Descriptor Extraction (intensity normalization, quantization, and edge/gradient-based descriptors)
+Tile level hashing
 Merkle tree construction
 
 Next up:
 Visualization and change localization
+Introduce spatial tolerence to handle minor misregistration (±1–2 pixels) between Sentinel-2 image pairs
