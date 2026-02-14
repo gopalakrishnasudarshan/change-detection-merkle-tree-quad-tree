@@ -2,38 +2,60 @@ import numpy as np
 
 
 
-def tile_image(arr: np.ndarray, tile_size: int) -> tuple[list[np.ndarray], int, int ]:
-
-    if arr.ndim != 2: 
-        raise ValueError(f"Expected 2d Array. got shape = {arr.shape}")
-    if tile_size <= 0:
-        raise ValueError("tile_size must be > 0")
+def tile_image_level (
+    arr: np.ndarray,
+    level: int , 
+    *,
+    pad: bool = False
+    ) -> tuple[list[np.ndarray], int, int]:
     
-    h,w = arr.shape
-    n_rows = (h + tile_size - 1) // tile_size
-    n_cols = (w + tile_size -1) // tile_size
-
-    tiles: list[np.ndarray] = []
-
-    for r in range(n_rows):
-        y0 = r * tile_size
-        y1 = min(y0 + tile_size,h)
-
-        for c in range(n_cols):
-            x0 = c* tile_size
-            x1 = min(x0+ tile_size,w)
-
-            tile = arr[y0:y1, x0:x1]
-
-            if tile.shape != (tile_size, tile_size):
-                padded = np.zeros((tile_size,tile_size), dtype=arr.dtype)
-                padded[:tile.shape[0], :tile.shape[1]] = tile
-                tile = padded
-            tiles.append(tile)
+    if level < 1: 
+        raise ValueError("Level must be >= 1")
     
-    expected = n_rows * n_cols
-    if len(tiles) != expected:
-        raise RuntimeError(f"Tiling bug: tiles={len(tiles)} expected={expected}")
+    if arr.ndim not in (2,3):
+        raise ValueError(f"Expected 2d or 3d array, got shape ={arr.shape}")
     
-
-    return tiles, n_rows, n_cols
+    h,w = arr.shape[:2]
+    rows = cols = 2 ** level
+    
+    if (h% rows != 0 ) or (w % cols != 0):
+        if not pad:
+            raise ValueError(
+                f"Image size must be divisible by 2^L. "
+                f"Got HxW={h}x{w}, 2^L={rows}. "
+                f"Either use pad=True or choose a different level."
+            )
+        
+        new_h = ((h + rows -1) // rows) * rows
+        new_w = ((w + cols -1) // cols) * cols
+        
+        if arr.ndim == 2:
+            padded = np.zeros((new_h, new_w), dtype=arr.dtype)
+            padded[:h, :w] = arr
+        else: 
+            c = arr.shape[2]
+            padded = np.zeros((new_h, new_w,c), dtype = arr.dtype)
+            padded[:h, :w, :] = arr
+        
+        arr = paddedh,w = arr.shape[:2]
+        
+    ph = h // rows
+    pw = w // cols
+    
+    patches : list[np.ndarray] = []
+    for r in range(rows):
+        y0 = r * ph
+        y1 = y0 + ph
+        for c in  range(cols):
+            x0 = c * pw 
+            x1 = x0 + pw
+            patches.append(arr[y0:y1, x0:x1].copy())
+    
+    expected = rows * cols
+    if len(patches) !=  expected: 
+        raise RuntimeError(f"Tiling bug: patches={len(patches)} expected={expected}")
+    
+    return patches, rows, cols
+            
+        
+    

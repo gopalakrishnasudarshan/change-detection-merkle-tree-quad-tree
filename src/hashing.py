@@ -1,23 +1,15 @@
-import hashlib 
 import numpy as np
-from src.preprocess import preprocess_tile
+from PIL import Image
+import imagehash
 
-
-def tile_to_bytes(tile: np.ndarray) -> bytes: 
-    if tile.ndim != 2: 
-        raise ValueError(f"Expected 2D tile. got shape = {tile.shape}")
+def patch_phash(patch: np.ndarray, hash_size: int = 8) -> str:
     
-    h,w = tile.shape
-    shape_bytes = np.array([h,w], dtype= np.uint32).tobytes(order="C")
+    if patch.ndim not in(2,3):
+        raise ValueError(f"Expected patch 2d or 3D, got shape= {patch.shape}")
 
-    dtype_str = str(tile.dtype).encode("ascii")
-    dtype_len = np.array([len(dtype_str)], dtype=np.uint32).tobytes(order="C")
-    data_bytes = np.ascontiguousarray(tile).tobytes(order="C")
-
-
-    return shape_bytes + dtype_len + dtype_str + data_bytes 
-
-def hash_tile(tile: np.ndarray,*,lo: float, hi: float, down: int = 16, q_step: int = 16) -> bytes:
-    rep = preprocess_tile(tile, lo=lo, hi=hi, down=down, q_step=q_step)
-    payload = tile_to_bytes(rep)
-    return hashlib.sha256(payload).digest()
+    if patch.dtype != np.uint8:
+        patch = patch.astype(np.uint8)
+        
+    img = Image.fromarray(patch)
+    h = imagehash.phash(img, hash_size=hash_size)
+    return str(h)

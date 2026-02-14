@@ -1,3 +1,5 @@
 numpy
 rasterio
 tqdm
+pillow
+imagehash

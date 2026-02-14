@@ -1,105 +1,95 @@
 from pathlib import Path
+from PIL import Image
 import numpy as np
-from src.preprocess import compute_norm_params
-from src.io_utils import read_single_band_tif, stats
-from src.tiling import tile_image
-from src.hashing import hash_tile
+
+from src.tiling import tile_image_level
+from src.hashing import patch_phash
 from src.merkle import build_merkle_tree, merkle_diff_changed_leaves
-from src.preprocess import preprocess_tile
+
+IMG1_PATH = Path("data/Image_1.png")
+IMG2_PATH = Path("data/Image_2.png")
+OUTPUT_PATH = Path("data/output.png")
+
+LEVEL = 4
+HASH_SIZE = 8
 
 
+def load_rgb(path: Path) -> np.ndarray:
+    if not path.exists():
+        raise FileNotFoundError(f"Missing file: {path}")
+    return np.array(Image.open(path).convert("RGB"))
 
-DATA_ROOT = Path("data/OSCD")
-T1_PATH = DATA_ROOT / "imgs_1_rect" / "B04.tif"
-T2_PATH = DATA_ROOT / "imgs_2_rect" / "B04.tif"
+def to_grayscale(rgb: np.ndarray) -> np.ndarray:
+    gray = np.dot(rgb[..., :3],[0.299, 0.587, 0.114])
+    gray = gray.astype(np.uint8)
+    return np.stack([gray,gray,gray], axis=-1)
 
-TILE_SIZE = 64
-Q_STEP = 16
-DOWNSAMPLE = 16
-
+def reconstruct_image(patches, rows, cols):
+    ph, pw, ch = patches[0].shape
+    out = np.zeros((rows * ph, cols * pw, ch), dtype=np.uint8)
+    
+    idx = 0
+    for r in range(rows):
+        for c in range(cols):
+            y0 = r *ph
+            y1 = y0 + ph 
+            x0 = c * pw
+            x1 = x0 + pw
+            out[y0:y1, x0:x1] = patches[idx]
+            idx += 1
+    return out
 
 
 def main() -> None:
-    t1 = read_single_band_tif(T1_PATH)
-    t2 = read_single_band_tif(T2_PATH)
+    img1 = load_rgb(IMG1_PATH)
+    img2 = load_rgb(IMG2_PATH)
 
-    print("Files loaded")
-    print("t1:", T1_PATH)
-    print("t2:", T2_PATH)
+    if img1.shape != img2.shape:
+        raise ValueError(f"Shape mismatch: img1={img1.shape} img2={img2.shape}")
 
-    print("\nShapes:")
-    print("t1:", t1.shape, "dtype:", t1.dtype)
-    print("t2:", t2.shape, "dtype:", t2.dtype)
+    patches1, rows, cols = tile_image_level(img1, LEVEL, pad=False)
+    patches2, _, _ = tile_image_level(img2, LEVEL, pad=False)
 
-    if t1.shape != t2.shape:
-        raise ValueError(f"Shape mismatch t1={t1.shape}, t2={t2.shape}")
+    # Leaf hashes 
+    leaf1 = [patch_phash(p, hash_size=HASH_SIZE).encode("utf-8") for p in patches1]
+    leaf2 = [patch_phash(p, hash_size=HASH_SIZE).encode("utf-8") for p in patches2]
 
-    print("\nBasic statistics:")
-    print("t1:", stats(t1))
-    print("t2:", stats(t2))
-    
-    lo, hi = compute_norm_params(t1, t2, p_low=2.0, p_high=98.0)
-    print(f"\nNormalization bounds (shared): lo={lo:.2f}, hi={hi:.2f}")
-    print(f"preprocess: down={DOWNSAMPLE} q_step={Q_STEP}")
-
-
-    tiles1, rows, cols = tile_image(t1, TILE_SIZE)
-    tiles2, rows2, cols2 = tile_image(t2, TILE_SIZE)
-
-    if (rows, cols) != (rows2, cols2):
-        raise ValueError(f"Tile grid mismatch: t1=({rows},{cols}) t2=({rows2},{cols2})")
-
-    print("\nTiling:")
-    print(f"tile_size={TILE_SIZE}")
-    print(f"grid={rows} rows x {cols} cols => total_tiles={len(tiles1)}")
-    print(f"first_tile_shape={tiles1[0].shape} last_tile_shape={tiles1[-1].shape}")
-
-    leaf_hashes1 = [hash_tile(tile, lo=lo, hi=hi, down=DOWNSAMPLE, q_step=Q_STEP) for tile in tiles1]
-    leaf_hashes2 = [hash_tile(tile, lo=lo, hi=hi, down=DOWNSAMPLE, q_step=Q_STEP) for tile in tiles2]
-    
-    rep_equal = 0
-    for a, b in zip(tiles1, tiles2):
-        ra = preprocess_tile(a, lo=lo, hi=hi, down=DOWNSAMPLE, q_step=Q_STEP)
-        rb = preprocess_tile(b, lo=lo, hi=hi, down=DOWNSAMPLE, q_step=Q_STEP)
-        rep_equal += int(np.array_equal(ra, rb))
-
-    print(f"\nPreprocessed tile exact matches: {rep_equal}/{len(tiles1)}")
-
-    diff_flags = [h1 != h2 for h1, h2 in zip(leaf_hashes1, leaf_hashes2)]
-    diff_count = sum(diff_flags)
-
-    print("\nTile hashing (SHA-256, robust):")
-    print(f"preprocess: down={DOWNSAMPLE} q_step={Q_STEP}")
-    print(f"differing_leaf_hashes={diff_count}/{len(leaf_hashes1)}")
-
-    sample_indices = [0, len(leaf_hashes1) // 2, len(leaf_hashes1) - 1]
-    print("\nSample leaf hashes (hex):")
-    for i in sample_indices:
-        print(f" t1 leaf[{i}]: {leaf_hashes1[i].hex()}")
-        print(f" t2 leaf[{i}]: {leaf_hashes2[i].hex()}")
-        print(f" equal? {leaf_hashes1[i] == leaf_hashes2[i]}\n")
-
-    check_indices = [0, len(tiles1) // 2, len(tiles1) - 1]
-    print("\nTile equality sanity check (t1 vs t2):")
-    for i in check_indices:
-        same = np.array_equal(tiles1[i], tiles2[i])
-        print(f"tile[{i}] equal? {same}")
-
-    tree1 = build_merkle_tree(leaf_hashes1)
-    tree2 = build_merkle_tree(leaf_hashes2)
+    tree1 = build_merkle_tree(leaf1)
+    tree2 = build_merkle_tree(leaf2)
 
     root1 = tree1[-1][0]
     root2 = tree2[-1][0]
+    
+    changed = merkle_diff_changed_leaves(tree1, tree2)
+    print("Changed patches:", changed)
+    
+    vis_patches = []
+    for i, patch in enumerate(patches2):
+        if i in changed:
+            vis_patches.append(patch)  # keep color
+        else:
+            vis_patches.append(to_grayscale(patch))
 
-    print("\nMerkle tree:")
-    print(f"levels_t1={len(tree1)} root_t1={root1.hex()}")
-    print(f"levels_t2={len(tree2)} root_t2={root2.hex()}")
-    print(f"roots_equal? {root1 == root2}")
+    output_img = reconstruct_image(vis_patches, rows, cols)
 
-    changed_tiles = merkle_diff_changed_leaves(tree1, tree2)
-    print("\nMerkle diff:")
-    print(f"changed_tiles={len(changed_tiles)} / {len(leaf_hashes1)}")
-    print(f"first_10_changed_indices={changed_tiles[:10]}")
+    Image.fromarray(output_img).save(OUTPUT_PATH)
+    print("Saved output to:", OUTPUT_PATH)
+
+
+    print("Merkle roots equal?", root1 == root2)
+    print("root1:", root1.hex())
+    print("root2:", root2.hex())
+
+    changed = merkle_diff_changed_leaves(tree1, tree2)
+    print(f"\nMerkle changed leaves: {len(changed)}/{len(leaf1)}")
+    print("changed_indices:", changed)
+
+    if changed:
+        print("\nFirst changed (index -> (row,col)):")
+        for i in changed[:10]:
+            r = i // cols
+            c = i % cols
+            print(f"{i} -> ({r},{c})")
 
 
 if __name__ == "__main__":

@@ -1,17 +1,42 @@
-Change detection using Merkle Trees on Satellite Imagery.
-Detecting changes between two satellite images of the same location .
-Uses Sentinel - 2 imagery -OSCD dataset
-Images are divided into fixed-size tiles for localized analysis.
-Each tile is hashed and organized into a Merkle tree.
-Root hash comparison indicates global change; tree structure enables future change localization.
+# Merkle Quad-Tree Based Image Change Detection
 
-Work done so far:
-Image loading and validation
-Tiling implemented
-Descriptor Extraction (intensity normalization, quantization, and edge/gradient-based descriptors)
-Tile level hashing
-Merkle tree construction
+Detects localized differences between two aligned RGB images using a Merkle Quad-Tree framework.
 
-Next up:
-Visualization and change localization
-Introduce spatial tolerence to handle minor misregistration (±1–2 pixels) between Sentinel-2 image pairs
+## Overview
+
+The image is divided into level-based quadtree patches:
+
+- L = 1 → 2×2
+- L = 2 → 4×4
+- L = 3 → 8×8 (64 patches)
+- L = 4 → 16×16 (256 patches)
+
+Each patch is hashed using perceptual hashing (pHash) and organized into a Merkle Tree.
+
+- Root hash comparison → Global change detection
+- Leaf comparison → Patch-level localization
+
+## Current Features
+
+- RGB image loading and validation
+- Level-based quadtree partitioning
+- Perceptual hashing (ImageHash)
+- Merkle tree construction
+- Change localization via leaf differences
+- Visualization:
+  - Changed patches remain in color
+  - Unchanged patches converted to grayscale
+
+## Future Enhancements
+
+- Apply the pipeline to real multi-temporal Google Maps satellite screenshot pairs (same location, different timeframes).
+- Increase quadtree level (L > 4) for finer spatial localization of changes.
+- Experiment with different quadtree levels to analyze precision vs. patch size trade-offs.
+- Extend visualization to replicate higher-version PPT outputs more precisely.
+
+## Dependencies
+
+- Python 3.x
+- Pillow
+- ImageHash
+- NumPy
