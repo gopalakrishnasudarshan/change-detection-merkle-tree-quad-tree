@@ -27,6 +27,12 @@ Each patch is hashed using perceptual hashing (pHash) and organized into a Merkl
   - Changed patches remain in color
   - Unchanged patches converted to grayscale
 
+  ## Recent Improvements
+
+- Added alignment and pixel-difference sanity checks to validate input image consistency.
+- Modularized visualization logic into viz.py for cleaner architecture.
+- Improved hash handling by standardizing byte-level patch hashes for Merkle tree input.
+
 ## Future Enhancements
 
 - Apply the pipeline to real multi-temporal Google Maps satellite screenshot pairs (same location, different timeframes).
