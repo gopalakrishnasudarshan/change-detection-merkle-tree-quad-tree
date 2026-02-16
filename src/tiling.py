@@ -37,7 +37,8 @@ def tile_image_level (
             padded = np.zeros((new_h, new_w,c), dtype = arr.dtype)
             padded[:h, :w, :] = arr
         
-        arr = paddedh,w = arr.shape[:2]
+        arr = padded
+        h,w = arr.shape[:2]
         
     ph = h // rows
     pw = w // cols
